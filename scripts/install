@@ -103,7 +103,7 @@ class Install(cli.LoggingArgs):
     parents: bool
     ("--parents", "-p")
     no_target_directory: bool
-    ("-no-target-directory", "-T")
+    ("--no-target-directory", "-T")
     buildroot: "typing.Optional[Path]" = Path(buildroot) if buildroot else None
     ("--buildroot", "-r")
     type: cli.Arg[typing.Union[FileType,str], cli.NS(conflicts='type')] = "-"
