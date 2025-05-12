@@ -1,0 +1,32 @@
+#!/bin/bash
+
+ROOT=$(realpath "$(dirname "$BASH_SOURCE")")
+SCRIPTS=$ROOT/scripts
+PATH="$SCRIPTS:$PATH"
+export BUILDROOT="$ROOT/rpm/BUILDROOT"
+export BUILDDIR="$ROOT/rpm/BUILD"
+export INSTALL_FILEDB="$BUILDDIR/files.yaml"
+
+echo "BUILDROOT $BUILDROOT"
+
+rm -rf "$BUILDROOT" "$INSTALL_FILEDB"
+mkdir -p "$BUILDROOT" "$BUILDDIR" 
+cd "$BUILDDIR"
+
+echo "$PATH"
+
+install -T -vvvvv -m 755 -g root -o games - "test" << EOF
+HERE STRING
+test3
+EOF
+
+install -D -g root -o games -m 644 -  /lib/testpath
+install --type directory -m 755 -D - /opt/pkgpriv1
+install --type directory -m 750 -o root -g games --filedb - ../SOURCES/testdir.tar /opt/pkgpriv1
+install -d -m 750 -o root -g games -D - /opt/pkgpriv2 < ../SOURCES/testdir.tar 
+
+
+exit 0
+
+
+

@@ -1,0 +1,180 @@
+#!/bin/python3
+
+from pathlib import Path
+import sys
+import os
+import typing
+import enum
+import shutil
+import pwd, grp
+import subprocess
+import yaml
+
+sys.path.insert(0, os.fspath(Path(__file__).parent))
+
+
+from coquilib import cli, logging
+
+buildroot = os.environ.get("BUILDROOT")
+filedb = os.environ.get("INSTALL_FILEDB")
+
+class FileType(str, enum.Enum):
+    DIRECTORY: str = "directory"
+    REGULAR: str = "regular"
+    SOFTLINK: str = "softlink"
+
+    def install(self, src: Path, dst: Path):
+        logging.info("Installing %s at %s", src, dst)
+        if self == FileType.REGULAR:
+            if str(src) != "-":
+                dst.unlink(True)
+                src.link_to(dst)
+            else:
+                logging.info("Obtaining data from stdin")
+                with dst.open("wb") as output:
+                    if not sys.stdin.isatty():
+                        with os.fdopen(sys.stdin.fileno(), "rb") as input:
+                            shutil.copyfileobj(input, output)
+        elif self == FileType.DIRECTORY:
+            dst.mkdir(exist_ok=True)
+            if str(src) != "-" or not sys.stdin.isatty():
+                subprocess.run(
+                    [
+                        "bsdtar",
+                        "--strip-components",
+                        "1",
+                        "-x",
+                        "-C",
+                        os.fspath(dst),
+                        "-f",
+                        os.fspath(src),
+                    ],
+                    stdin=sys.stdin.fileno(),
+                    check=True,
+                )
+
+
+class Install(cli.LoggingArgs):
+    mode: "str" = "-"
+    ("--mode", "-m")
+    group: str = "-"
+    ("--group", "-g")
+    owner: str = "-"
+    ("--owner", "-o")
+    parents: bool
+    ("--parents", "-p")
+    no_target_directory: bool
+    ("-no-target-directory", "-T")
+    buildroot: "typing.Optional[Path]" = Path(buildroot) if buildroot else None
+    ("--buildroot", "-r")
+    type: "typing.Union[FileType,str]" = "-"
+    ("--type",)
+    decompress:bool
+    ('-x','--decompress')
+    filedb:Path = Path(filedb) if filedb else None
+    source: Path
+    ("source",)
+    destination: Path
+    ("destination",)
+
+    def __init__(self, **kwargs):
+        if kwargs.pop("D", False):
+            kwargs["no_target_directory"] = True
+            kwargs["parents"] = True
+        if kwargs.pop("d", False):
+            kwargs['type'] = 'directory'
+        kwargs.pop("#cls")
+        super().__init__(**kwargs)
+
+    @classmethod
+    def build_parser(cls, subparser=None, name=None, parents=[], **kwargs):
+        parser = super().build_parser(subparser, name, parents, **kwargs)
+        parser.add_argument("-D", help="-Tp", action="store_true", default=False)
+        parser.add_argument("-d", help="--type directory", action="store_true", default=False)
+
+        return parser
+
+    def run(self):
+        if self.type == "-":
+            logging.debug("Determining type from source")
+            if str(self.source) != "-":
+                if self.source.is_symlink():
+                    self.type = FileType.SOFTLINK
+                elif self.source.is_dir():
+                    self.type = FileType.DIRECTORY
+                elif self.source.is_file():
+                    self.type = FileType.REGULAR
+                else:
+                    raise TypeError(self.source)
+            else:
+                self.type = FileType.REGULAR
+        else:
+            self.type = FileType(self.type)
+
+        if not self.no_target_directory:
+            if str(self.source) == "-":
+                raise ValueError(self.source)
+            self.destination = self.destination / self.source.name
+            if self.type == FileType.DIRECTORY:
+                name = self.destination.name
+                parts = name.split('.')
+                if len(parts) > 1:
+                    suffixes = parts[1:]
+                    suffixes.reverse()
+                    for ty in ['tar', 'iso']:
+                        if ty in suffixes:
+                            idx = suffixes.index(ty)
+                            name = '.'.join([parts[0], *reversed(suffixes[idx+1:])])
+                            self.destination = self.destination.with_name(name)
+                            break
+
+        if not self.destination.absolute():
+            raise ValueError(self.destination)
+
+        dest = self.destination
+        if self.buildroot:
+            if dest.is_absolute():
+                dest = Path(self.buildroot, *dest.parts[1:])
+            else:
+                dest = self.buildroot / dest
+
+        if self.parents:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+
+        self.type.install(self.source, dest)
+        if self.mode and self.mode != "-":
+            mode = int(self.mode, 8)
+            LOGGER.debug("Setting mode for %s to %o", self.destination, mode)
+            os.chmod(dest, mode, follow_symlinks=False)
+
+        if self.owner != "-" or self.group != "-":
+            try:
+                owner = -1 if self.owner == "-" else pwd.getpwnam(self.owner).pw_uid
+                group = -1 if self.group == "-" else grp.getgrnam(self.group).gr_gid
+                os.chown(dest, owner, group, follow_symlinks=False)
+            except Exception:
+                LOGGER.debug("Could not change owner/group, maybe due to user not having enough permissions")
+                pass
+        
+        if self.filedb:
+            if str(self.filedb) == '-':
+                import shlex
+                print(shlex.join([os.fspath(self.destination), self.type.value, self.mode, self.owner, self.group]))
+            else:
+                filedb:dict[str,dict[str,str]] = {}
+                filedb[os.fspath(self.destination)] = {
+                    'mode': self.mode,
+                    'owner': self.owner,
+                    'group': self.group,
+                    'type': self.type.value
+                }
+                with self.filedb.open('+a') as file:
+                    file.write(yaml.safe_dump(filedb))
+
+if __name__ == "__main__":
+    LOGGER = logging.init_stderr_logging()
+    parser = Install.build_parser(name="install")
+    install = parser.parse_args()
+    install.set_loglevels()
+
+    install.run()

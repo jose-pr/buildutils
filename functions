@@ -1,0 +1,286 @@
+#!/bin/bash
+
+FILELIST='files'
+BUILDROOT='/'
+
+FILEDECLOPTS='m:g:o:t:n:f:r:a'
+
+function declarefile(){
+    local mode='-'
+    local owner='-'
+    local group='-'
+    local type='file'
+    local package='-'
+    local apply=0
+    local filelist=$FILELIST
+    local buildroot=$BUILDROOT
+    
+
+    if [ "$#" -lt 1 ]; then
+        echo "Not enough arguments passed" >&2 
+        return 1
+    fi
+
+    local path="${!#}"
+    set -- "${@:1:$#-1}"
+
+    local OPTARG
+    local OPTIND
+    while getopts "$FILEDECLOPTS" arg; do
+        case $arg in
+            r)
+            buildroot=$OPTARG
+            ;;
+            a)
+            apply=1
+            ;;
+            m)
+            mode=$OPTARG
+            ;;
+            g)
+            group=$OPTARG
+            ;;
+            o)
+            owner=$OPTARG
+            ;;
+            t)
+            type=$OPTARG
+            ;;
+            n)
+            package=$OPTARG
+            ;;
+            f)
+            filelist=$OPTARG
+            ;;
+            \?)
+            echo "Unknown Argument" >&2
+            ;;
+        esac
+    done
+    shift $(( OPTIND - 1 ))
+    if [ "$#" -eq 1 ] && [[ "$package" == '-' ]]; then
+        package="-$1"
+        shift
+    fi
+    if [ "$#" -gt 0 ]; then
+        echo "Too many arguments passed" >&2 
+        return 1
+    fi
+    local filepath=$buildroot/$path
+   
+    if [ $apply -eq 1 ]; then
+        if [[ "$mode" != "-" ]]; then chmod "$mode" "$filepath"; fi
+        local _chown=''
+        if [[ "$owner" != '-' ]]; then _chown="$owner"; fi
+        if [[ "$group" != '-' ]]; then _chown="$_chown:$group"; fi
+        if [ "$(id -u)" -eq 0 ] && [[ -n "$_chown" ]]; then chown "$_chown" "$filepath"; fi
+    fi
+
+    local fileline="${package@Q} ${type@Q} ${mode@Q} ${owner@Q} ${group@Q} ${path@Q}"
+
+    if [[ "$filelist" == '-' ]]; then 
+        echo "$fileline"
+    else
+        echo "$fileline" >> "$filelist"
+    fi
+
+
+}
+
+function generaterpmfiles(){
+    local package='-'
+    local filelist=$FILELIST
+    if ! [ -t 0 ]; then
+        filelist='-'
+    fi
+    local OPTARG
+    local OPTIND
+    while getopts "n:f:" arg; do
+        case $arg in
+            n)
+            package=$OPTARG
+            ;;
+            f)
+            filelist=$OPTARG
+            ;;
+            \?)
+            echo "Unknown Argument" >&2
+            exit 1
+            ;;
+        esac
+    done
+    shift $(( OPTIND - 1 ))
+    if [ "$#" -eq 1 ] && [[ "$package" == '-' ]]; then
+        package="-$1"
+        shift
+    fi
+    if [ "$#" -gt 0 ]; then
+        echo "Too many arguments passed" >&2 
+        return 1
+    fi
+    local args
+    local type
+    local mode
+    local owner
+    local group
+    local prefix
+
+    while read -r line; do
+        declare -a "args=($line)"
+        set -- "${args[@]}"
+        pkg=$1
+        shift
+        if [[ "$pkg"  != "$package" ]]; then continue; fi
+        prefix=''
+        type=${1?}
+        mode=${2?}
+        owner=${3?}
+        group=${4?}
+        path=${5?}
+
+        case $type in
+            backup) prefix='%conf';;
+            default) prefix='%conf(noreplace)';;
+            optional) prefix='%conf(missingok)';;
+            exclude) prefix='%ghost';;
+            directory) prefix='%dir';;
+            '%'*) prefix="$type";;
+        esac
+
+        echo "$prefix %attr($mode,$owner,$group) $path"
+
+    done <<< "$(cat "$filelist")"
+
+}
+
+function createfile(){
+    if [ "$#" -eq 0 ]; then
+        echo "Need at least 1 parameter" >&2 
+        return 1
+    fi
+    local path=${!#}
+    local buildroot=$BUILDROOT
+    local createparents=0
+
+    local content=''
+    if ! [ -t 0 ]; then
+        content=$(cat -)
+    fi
+    local OPTARG
+    local OPTIND
+    local args=()
+    while getopts "$FILEDECLOPTS:p" arg; do
+        case $arg in
+            r)
+            buildroot=$OPTARG
+            args+=( "-$arg" "$OPTARG" )
+            ;;
+            p)
+            createparents=1
+            ;;
+            *) args+=( "-$arg" "$OPTARG" );;
+        esac
+    done
+
+    local filepath=${buildroot%/}/$path
+    if [ $createparents -eq 1 ]; then mkdir -p "$(dirname "$filepath")"; fi
+
+    echo -n "$content" > "$filepath"
+    declarefile "${args[@]}" -a "$path"
+
+}
+
+function createdir(){
+    if [ "$#" -eq 0 ]; then
+        echo "Need at least 1 parameter" >&2 
+        return 1
+    fi
+    local path=${!#}
+    local buildroot=$BUILDROOT
+    local createparents=0
+
+    local OPTARG
+    local OPTIND
+    local args=()
+    while getopts "$FILEDECLOPTS:p" arg; do
+        case $arg in
+            r)
+            buildroot=$OPTARG
+            args+=( "-$arg" "$OPTARG" )
+            ;;
+            p)
+            createparents=1
+            ;;
+            *) args+=( "-$arg" "$OPTARG" );;
+        esac
+    done
+
+    local filepath=${buildroot%/}/$path
+    local _cmdargs=''
+    if [ $createparents -eq 1 ]; then _cmdargs='-p'; fi
+    mkdir $_cmdargs "$filepath"
+    if ! [ -t 0 ]; then
+        tar -xf - -C "$filepath"
+    fi
+    declarefile "${args[@]}" -t 'directory' -a "$path"
+}
+
+
+BUILDROOT=$(realpath "$(dirname "$BASH_SOURCE")/rpm/BUILDROOT")
+BUILDDIR=$(realpath "$(dirname "$BASH_SOURCE")/rpm/BUILD")
+echo "BUILDROOT $BUILDROOT"
+
+mkdir -p "$BUILDROOT" "$BUILDDIR"
+cd "$BUILDDIR"
+
+rm -f "$FILELIST" "files2"
+
+
+createfile -m 755 -g root -o games "test" << EOF
+HERE STRING
+test3
+EOF
+
+createfile -p -g root -o games -m 644 -n common -t optional -f files2 /lib/testpath
+
+createdir -m 755 -p /opt/pkg
+cat ../SOURCES/testdir.tar | createdir -m 750 -o root -g games -p /opt/pkgpriv
+
+function forpath(){
+    if [ "$#" -lt 2 ]; then
+        echo "Not enough arguments passed" >&2 
+        return 1
+    fi
+    local path=$1
+    local lambda=${!#}
+    local file
+    shift
+    find "$path" "${@:1:$#-1}" -print0 |  while IFS= read -r -d '' file; do 
+        eval "$lambda" "$file"
+    done
+    
+}
+
+function forprefixedpath(){
+    if [ "$#" -lt 3 ]; then
+        echo "Not enough arguments passed" >&2 
+        return 1
+    fi
+    local prefix=${1}
+    local path=${prefix%/}/${2#/}
+    local lambda=${!#}
+    local file
+    shift
+    shift
+    find "$path" "${@:1:$#-1}" -print0 |  while IFS= read -r -d '' file; do 
+        eval "$lambda" "${file#"$prefix"}"
+    done
+    
+}
+
+forprefixedpath "$BUILDROOT" "/opt/pkgpriv" -mindepth 1 -type f "declarefile -m 644 -g root"
+
+
+generaterpmfiles
+#declarefile -f - "teststdout"
+
