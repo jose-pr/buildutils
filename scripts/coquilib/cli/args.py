@@ -112,13 +112,13 @@ class ArgumentBuilder(_argparse.Namespace):
     help: str
     required: "bool | None" = None
     action: "str | _type[_argparse.Action] | None" = None
-    nargs:'str|int|None' =  None
+    nargs: "str|int|None" = None
 
     def _kwargs(self):
         kwargs = getattr(self, "kwargs", None) or {}
 
         if self.nargs != None:
-            kwargs['nargs'] = self.nargs
+            kwargs["nargs"] = self.nargs
 
         if self.default is not _inspect.NOT_DEFINED:
             kwargs["default"] = self.default
@@ -134,8 +134,6 @@ class ArgumentBuilder(_argparse.Namespace):
         if kwargs.get("action") == "store_true" and "default" not in kwargs:
             kwargs["default"] = False
 
-
-
         flags = self.flags
         dest = self.name
         if len(flags) == 1 and not flags[0].startswith("-"):
@@ -147,7 +145,7 @@ class ArgumentBuilder(_argparse.Namespace):
         if self.required is not None:
             kwargs["required"] = self.required
         elif dest is not None:
-            kwargs['required'] = 'default' not in kwargs
+            kwargs["required"] = "default" not in kwargs
 
         return kwargs
 
@@ -200,6 +198,7 @@ class Args(_argparse.Namespace):
         subparser: "_argparse._SubParsersAction | None" = None,
         name: "str | None" = None,  # type:ignore
         parents: _ty.Sequence[_argparse.ArgumentParser] = [],
+        init=True,
         **kwargs,
     ) -> "_Parser[_Self]":
         if subparser:
@@ -214,12 +213,15 @@ class Args(_argparse.Namespace):
             method(name, parents=parents, **kwargs),
         )
 
-        cls.initparser(parser)
+        if init:
+            cls.initparser(parser)
 
         return parser
 
     @classmethod
-    def initparser(cls, parser: _argparse.ArgumentParser):
+    def initparser(
+        cls, parser: _argparse.ArgumentParser, exclusive_groups: dict = None
+    ):
 
         def parse_known_args(
             args: "_ty.Sequence[str] | None" = None, namespace: "NS | None" = None
@@ -236,14 +238,23 @@ class Args(_argparse.Namespace):
             return _cls(**parsed.__dict__), unk
 
         parser.parse_known_args = parse_known_args  # type:ignore
-
+        exclusive_groups = exclusive_groups or {}
         for arg in cls._getargs_():
             _action = None
             for action in parser._actions:
                 if action.dest == arg.name:
                     _action = action
             if not _action:
-                _action = arg.add_to_parser(parser)
+                conflicts = getattr(arg, "conflicts", None)
+                if conflicts:
+                    if conflicts not in exclusive_groups:
+                        exclusive_groups[conflicts] = (
+                            parser.add_mutually_exclusive_group()
+                        )
+                    group = exclusive_groups[conflicts]
+                else:
+                    group = parser
+                _action = arg.add_to_parser(group)
             setattr(cls, f"_action_{_action.dest}", _action)
 
         return parser

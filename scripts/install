@@ -52,14 +52,14 @@ class FileType(str, enum.Enum):
                         with os.fdopen(sys.stdin.fileno(), "rb") as input:
                             shutil.copyfileobj(input, output)
         elif self == FileType.SOFTLINK:
-            if str(src) == '-':
-                target = cmd.options.get('target')
+            if str(src) == "-":
+                target = cmd.options.get("target")
                 if not target:
                     raise ValueError(src)
                 dst.symlink_to(target)
             else:
                 target = src.readlink()
-                cmd.options['target'] = target
+                cmd.options["target"] = target
                 dst.symlink_to(target)
                 shutil.copystat(src, dst, follow_symlinks=False)
 
@@ -89,6 +89,8 @@ class FileType(str, enum.Enum):
                     stdin=sys.stdin.fileno(),
                     check=True,
                 )
+        else:
+            raise NotImplementedError(self)
 
 
 class Install(cli.LoggingArgs):
@@ -104,7 +106,7 @@ class Install(cli.LoggingArgs):
     ("-no-target-directory", "-T")
     buildroot: "typing.Optional[Path]" = Path(buildroot) if buildroot else None
     ("--buildroot", "-r")
-    type: "typing.Union[FileType,str]" = "-"
+    type: cli.Arg[typing.Union[FileType,str], cli.NS(conflicts='type')] = "-"
     ("--type",)
     decompress: cli.Arg[typing.Union[str, bool], cli.NS(nargs="?")] = False
     ("-x", "--decompress")
@@ -134,9 +136,12 @@ class Install(cli.LoggingArgs):
 
     @classmethod
     def build_parser(cls, subparser=None, name=None, parents=[], **kwargs):
-        parser = super().build_parser(subparser, name, parents, **kwargs)
+        parser = super().build_parser(subparser, name, parents, init=False, **kwargs)
+        typegroup = parser.add_mutually_exclusive_group()
+        exclusive_groups = {"type": typegroup}
+        cls.initparser(parser, exclusive_groups)
         parser.add_argument("-D", help="-Tp", action="store_true", default=False)
-        parser.add_argument(
+        typegroup.add_argument(
             "-d", help="--type directory", action="store_true", default=False
         )
 
