@@ -112,10 +112,13 @@ class ArgumentBuilder(_argparse.Namespace):
     help: str
     required: "bool | None" = None
     action: "str | _type[_argparse.Action] | None" = None
+    nargs:'str|int|None' =  None
 
     def _kwargs(self):
         kwargs = getattr(self, "kwargs", None) or {}
 
+        if self.nargs != None:
+            kwargs['nargs'] = self.nargs
 
         if self.default is not _inspect.NOT_DEFINED:
             kwargs["default"] = self.default

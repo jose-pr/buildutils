@@ -6,6 +6,7 @@ PATH="$SCRIPTS:$PATH"
 export BUILDROOT="$ROOT/rpm/BUILDROOT"
 export BUILDDIR="$ROOT/rpm/BUILD"
 export INSTALL_FILEDB="$BUILDDIR/files.yaml"
+export SOURCES="$ROOT/rpm/SOURCES"
 
 echo "BUILDROOT $BUILDROOT"
 
@@ -22,8 +23,10 @@ EOF
 
 install -D -g root -o games -m 644 -  /lib/testpath
 install --type directory -m 755 -D - /opt/pkgpriv1
-install --type directory -m 750 -o root -g games --filedb - ../SOURCES/testdir.tar /opt/pkgpriv1
-install -d -m 750 -o root -g games -D - /opt/pkgpriv2 < ../SOURCES/testdir.tar 
+install --type directory -m 750 -o root -g games --filedb - "$SOURCES/testdir.tar" /opt/pkgpriv1
+install -d -m 750 -o root -g games -D - /opt/pkgpriv2 < "$SOURCES/testdir.tar.gz" -vvvvv
+install  -x -p -m 644 -o root -g root "$SOURCES/testdir.tar.gz" /opt/ -vvvvvv
+install -D --type softlink -Otarget=/usr/bin/brokensymlink  - /usr/bin/symlink
 
 
 exit 0
