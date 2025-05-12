@@ -207,12 +207,13 @@ class Args(_argparse.Namespace):
             method = _argparse.ArgumentParser
 
         name: str = name or getattr(cls, "_parsername_", None) or cls.__name__
+        setattr(cls,'_parsername_', name)
         kwargs.setdefault("description", cls.__doc__ or "")
         parser = _ty.cast(
             "_Parser[_ty.Self]",
             method(name, parents=parents, **kwargs),
         )
-
+        
         if init:
             cls.initparser(parser)
 

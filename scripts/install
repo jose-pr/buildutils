@@ -27,7 +27,7 @@ class FileType(str, enum.Enum):
     SOFTLINK: str = "softlink"
 
     def install(self, src: Path, dst: Path, cmd: "Install"):
-        logging.info("Installing %s at %s", src, dst)
+        cmd.logger.info("Installing %s at %s", src, dst)
         if self == FileType.REGULAR:
             dst.unlink(True)
             if cmd.decompress:
@@ -204,7 +204,7 @@ class Install(cli.LoggingArgs):
         self.type.install(self.source, dest, self)
         if self.mode and self.mode != "-":
             mode = int(self.mode, 8)
-            LOGGER.debug("Setting mode for %s to %o", self.destination, mode)
+            self.logger.debug("Setting mode for %s to %o", self.destination, mode)
             os.chmod(dest, mode, follow_symlinks=False)
 
         if self.owner != "-" or self.group != "-":
@@ -213,7 +213,7 @@ class Install(cli.LoggingArgs):
                 group = -1 if self.group == "-" else grp.getgrnam(self.group).gr_gid
                 os.chown(dest, owner, group, follow_symlinks=False)
             except Exception:
-                LOGGER.debug(
+                self.logger.debug(
                     "Could not change owner/group, maybe due to user not having enough permissions"
                 )
                 pass
@@ -248,7 +248,7 @@ class Install(cli.LoggingArgs):
 
 
 if __name__ == "__main__":
-    LOGGER = logging.init_stderr_logging()
+    logging.init_stderr_logging()
     parser = Install.build_parser(name="install")
     install = parser.parse_args()
     install.set_loglevels()

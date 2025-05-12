@@ -1,6 +1,7 @@
 import argparse as _argparse
 import copy as _copy
 import typing as _ty
+import functools as _func
 
 from .. import logging as _logging
 from .args import *
@@ -28,7 +29,7 @@ def insert_action(
         parser._option_string_actions[k] = action
 
 
-def Extend(split: 'str | _ty.Callable[[str], _ty.Iterable]', **kwargs):
+def Extend(split: "str | _ty.Callable[[str], _ty.Iterable]", **kwargs):
     kwargs.setdefault("default", [])
     if isinstance(split, str):
         ty: _ty.Callable[[str], list] = lambda x: x.split(split)  # type:ignore
@@ -97,11 +98,15 @@ class LoggingArgs(Args):
 
     def set_loglevels(self):
         loglevels = self.loglevels.copy()
-        loglevels.setdefault("", LoggingArgs.verbose_as_loglevel(self))
+        loglevels.setdefault(self.logger.name, LoggingArgs.verbose_as_loglevel(self))
         for name, level in loglevels.items():
             _logging.getLogger(name).setLevel(level)
 
         return loglevels
+
+    @property
+    def logger(self):
+        return _logging.getLogger(getattr(self, "_logger_", self._parsername_))
 
 
 _SUBPARSERACTION_CALL = _argparse._SubParsersAction.__call__
@@ -156,7 +161,7 @@ _HELPACTION_CALL = _argparse._HelpAction.__call__
 
 
 def prerun_parse(
-    parser: _argparse.ArgumentParser, argv: '_ty.Sequence[str] | None' = None
+    parser: _argparse.ArgumentParser, argv: "_ty.Sequence[str] | None" = None
 ):
     subparser = None
     if parser._subparsers:
