@@ -106,7 +106,7 @@ class Install(cli.LoggingArgs):
     ("--no-target-directory", "-T")
     buildroot: "typing.Optional[Path]" = Path(buildroot) if buildroot else None
     ("--buildroot", "-r")
-    type: cli.Arg[typing.Union[FileType,str], cli.NS(conflicts='type')] = "-"
+    type: cli.Arg[typing.Union[FileType, str], cli.NS(conflicts="type")] = "-"
     ("--type",)
     decompress: cli.Arg[typing.Union[str, bool], cli.NS(nargs="?")] = False
     ("-x", "--decompress")
@@ -235,16 +235,20 @@ class Install(cli.LoggingArgs):
                     )
                 )
             else:
-                filedb: dict[str, dict[str, str]] = {}
-                filedb[os.fspath(self.destination)] = {
-                    "mode": self.mode,
-                    "owner": self.owner,
-                    "group": self.group,
-                    "type": self.type.value,
-                    "options": self.options,
-                }
                 with self.filedb.open("+a") as file:
-                    file.write(yaml.safe_dump(filedb))
+                    file.write(
+                        yaml.safe_dump(
+                            {
+                                os.fspath(self.destination): {
+                                    "mode": self.mode,
+                                    "owner": self.owner,
+                                    "group": self.group,
+                                    "type": self.type.value,
+                                    "options": self.options,
+                                }
+                            }
+                        )
+                    )
 
 
 if __name__ == "__main__":
